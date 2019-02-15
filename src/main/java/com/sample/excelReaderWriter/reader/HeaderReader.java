@@ -14,11 +14,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.IndexedColorMap;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.util.ResourceUtils;
@@ -40,7 +45,7 @@ public class HeaderReader {
 		TemplateMasterTest templateMasterTest = new TemplateMasterTest();
 
 		// Test template to be created with headers
-		File templateFile = ResourceUtils.getFile("classpath:templates/test1.xlsx");
+		File templateFile = ResourceUtils.getFile("classpath:templates/test.xlsx");
 		try (FileInputStream fis = new FileInputStream(templateFile)) {
 
 			try (XSSFWorkbook xlsxWorkbook = new XSSFWorkbook(fis)) {
@@ -73,11 +78,11 @@ public class HeaderReader {
 
 						Iterator<Row> rowIterator = currentSheet.iterator();
 						while (rowIterator.hasNext()) {
-							Row row = rowIterator.next();
+							XSSFRow row = (XSSFRow) rowIterator.next();
 
 							Iterator<Cell> cellIterator = row.cellIterator();
 							while (cellIterator.hasNext()) {
-								Cell cell = cellIterator.next();
+								XSSFCell cell = (XSSFCell) cellIterator.next();
 
 								// Only taking header details of unmerged cells
 								if (!checkCellMerged(mergedCellList, cell.getRowIndex(), cell.getColumnIndex())) {
@@ -90,6 +95,7 @@ public class HeaderReader {
 									sheetHeaderMasterTest.setRowFrom(cell.getRowIndex());
 									sheetHeaderMasterTest.setRowTo(cell.getRowIndex());
 									sheetHeaderMasterTest.setHeaderText(cell.getStringCellValue());
+									sheetHeaderMasterTest.setHeaderColor(cell.getCellStyle().getFillForegroundColorColor().getARGBHex());
 
 									// Adding each unmerged header details to header set of sheet
 									sheetHeaderMasterTestSet.add(sheetHeaderMasterTest);
@@ -155,7 +161,8 @@ public class HeaderReader {
 			sheetHeaderMasterTest.setColTo(cellRangeAddress.getLastColumn());
 			sheetHeaderMasterTest.setRowFrom(cellRangeAddress.getFirstRow());
 			sheetHeaderMasterTest.setRowTo(cellRangeAddress.getLastRow());
-
+			sheetHeaderMasterTest.setHeaderColor(currentSheet.getRow(cellRangeAddress.getFirstRow())
+					.getCell(cellRangeAddress.getFirstColumn()).getCellStyle().getFillForegroundColorColor().getARGBHex());
 			// Data of merged cells is always present in the first cell
 			sheetHeaderMasterTest.setHeaderText(currentSheet.getRow(cellRangeAddress.getFirstRow())
 					.getCell(cellRangeAddress.getFirstColumn()).getStringCellValue());
@@ -178,6 +185,8 @@ public class HeaderReader {
 
 		try (OutputStream fileOut = new FileOutputStream("test_template.xlsx")) {
 			try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+				// Adding to handle cell background color issue in poi
+				IndexedColorMap colorMap = workbook.getStylesSource().getIndexedColors();
 
 				Iterator<SheetMasterTest> sheetMasterTestListItr = sheetMasterTestList.iterator();
 				while (sheetMasterTestListItr.hasNext()) {
@@ -193,9 +202,9 @@ public class HeaderReader {
 						int rowFrom = sheetHeaderMasterTest.getRowFrom();
 						int rowTo = sheetHeaderMasterTest.getRowTo();
 
-						Row row = currentSheet.getRow(rowFrom) == null ? currentSheet.createRow(rowFrom)
+						XSSFRow row = currentSheet.getRow(rowFrom) == null ? currentSheet.createRow(rowFrom)
 								: currentSheet.getRow(rowFrom);
-						Cell cell = row.getCell(colFrom) == null ? row.createCell(colFrom) : row.getCell(colFrom);
+						XSSFCell cell = row.getCell(colFrom) == null ? row.createCell(colFrom) : row.getCell(colFrom);
 
 						cell.setCellValue(sheetHeaderMasterTest.getHeaderText());
 
@@ -205,13 +214,14 @@ public class HeaderReader {
 						}
 
 						// Styling to center align headers, can be changed as required
-						CellStyle style = cell.getSheet().getWorkbook().createCellStyle();
+						XSSFCellStyle style = cell.getSheet().getWorkbook().createCellStyle();
 						style.setAlignment(HorizontalAlignment.CENTER);
 						style.setVerticalAlignment(VerticalAlignment.CENTER);
+						XSSFColor headerColor = new XSSFColor(getRGB(sheetHeaderMasterTest.getHeaderColor()),colorMap);
+						style.setFillBackgroundColor(headerColor);
+						style.setFillPattern(FillPatternType.BIG_SPOTS);
 						cell.setCellStyle(style);
-
 					}
-
 				}
 
 				workbook.write(fileOut);
@@ -224,4 +234,23 @@ public class HeaderReader {
 
 	}
 
-}
+	private static byte[] getRGB(String hexColorString) {
+
+		hexColorString = hexColorString.replace("#", "");
+		
+		switch (hexColorString.length()) {
+		case 6:
+			return new byte[] {
+					(byte)(Integer.valueOf(hexColorString.substring(0, 2), 16)  & 0xFF),
+					(byte)(Integer.valueOf(hexColorString.substring(2, 4), 16)  & 0xFF),
+					(byte)(Integer.valueOf(hexColorString.substring(4, 6), 16)  & 0xFF)};
+		case 8:
+			return new byte[] {
+					(byte)(Integer.valueOf(hexColorString.substring(0, 2), 16)  & 0xFF),
+					(byte)(Integer.valueOf(hexColorString.substring(2, 4), 16)  & 0xFF),
+					(byte)(Integer.valueOf(hexColorString.substring(4, 6), 16)  & 0xFF),
+					(byte)(Integer.valueOf(hexColorString.substring(6, 8), 16)  & 0xFF)};
+			}
+			return null;
+		}
+	}
